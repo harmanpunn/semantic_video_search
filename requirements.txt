@@ -1,0 +1,8 @@
+twelvelabs
+streamlit
+fastapi
+uvicorn
+faiss-cpu
+numpy
+python-dotenv
+ipykernel

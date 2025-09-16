@@ -1,0 +1,32 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+.claude/
+claude.md
+
+# Data files
+data/videos/*.mp4
+data/videos/*.mov
+data/videos/*.avi
+embeddings.json
+*.index
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+.

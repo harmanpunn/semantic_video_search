@@ -98,20 +98,17 @@ def main():
     with col1:
         query = st.text_input(
             "Enter your search query:",
-            placeholder="e.g., person talking, outdoor scene, laughter, office meeting"
+            placeholder="e.g., person talking, outdoor scene, laughter, office meeting",
+            key="search_query_input"
         )
 
     with col2:
-        max_results = st.selectbox("Max results:", [3, 5, 10], index=1)
+        max_results = st.selectbox("Max results:", [3, 5, 10], index=1, key="max_results_select")
 
-    # Search options
-    col_options1, col_options2 = st.columns([1, 1])
-    with col_options1:
-        search_context = st.checkbox("Search with context", value=True, 
-                                     help="Includes surrounding context in search results")
-    with col_options2:
-        show_video = st.checkbox("Show videos", value=True, 
-                                 help="Display video players in results")
+    # Video display option
+    show_video = st.checkbox("Show videos", value=True, 
+                            help="Display video players in results",
+                            key="show_video_checkbox")
     
     # Search button
     if st.button("🔍 Search", type="primary") or query:
@@ -127,10 +124,10 @@ def main():
             results = search_videos(query, max_results)
 
         if results:
-            # Add more prominent results header in darker color to match Twelve Labs UI
+            # Minimalist results header
             st.markdown(
-                f'<div style="background-color: #1e3a2d; color: white; padding: 8px 15px; border-radius: 5px; margin-bottom: 15px;">'
-                f'<h3 style="margin: 0;">Found {results["total_results"]} results</h3>'
+                f'<div style="background-color: #f1f3f2; color: #2c4c3b; padding: 8px 12px; border-left: 3px solid #2c4c3b; margin-bottom: 15px; font-weight: 500;">'
+                f'Found {results["total_results"]} results'
                 f'</div>',
                 unsafe_allow_html=True
             )
@@ -142,47 +139,51 @@ def main():
                     st.markdown("""
                     <style>
                     .result-card {
-                        border: 1px solid #ddd;
-                        border-radius: 8px;
+                        border: 1px solid #eaeaea;
+                        border-radius: 6px;
                         padding: 0;
-                        margin-bottom: 24px;
+                        margin-bottom: 20px;
                         background-color: white;
-                        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
                     }
                     .result-header {
-                        background-color: #2c4c3b;
-                        color: white;
-                        padding: 10px 15px;
+                        background-color: #f5f5f5;
+                        color: #333;
+                        padding: 8px 12px;
                         margin: 0;
-                        border-top-left-radius: 8px;
-                        border-top-right-radius: 8px;
-                        border-bottom: 1px solid #ddd;
+                        border-top-left-radius: 6px;
+                        border-top-right-radius: 6px;
+                        border-bottom: 1px solid #eaeaea;
+                        font-weight: 500;
                     }
                     .result-content {
-                        padding: 15px;
+                        padding: 12px;
                     }
                     .text-block {
-                        background-color: #f9f9f9;
-                        border-radius: 5px;
-                        padding: 10px;
+                        background-color: #fafafa;
+                        border-radius: 4px;
+                        padding: 8px 10px;
                         margin-bottom: 10px;
-                        border-left: 3px solid #2c4c3b;
+                        border-left: 2px solid #ccc;
+                        font-size: 14px;
                     }
                     .confidence-indicator {
-                        font-weight: bold;
+                        font-weight: 500;
                         display: inline-block;
-                        padding: 4px 10px;
-                        border-radius: 12px;
+                        padding: 3px 8px;
+                        border-radius: 4px;
                         color: white;
+                        font-size: 12px;
+                        letter-spacing: 0.3px;
                     }
                     .high-confidence {
-                        background-color: #28a745;
+                        background-color: #27ae60;
                     }
                     .medium-confidence {
-                        background-color: #fd7e14;
+                        background-color: #f39c12;
                     }
                     .low-confidence {
-                        background-color: #dc3545;
+                        background-color: #e74c3c;
                     }
                     </style>
                     """, unsafe_allow_html=True)
@@ -280,87 +281,61 @@ def main():
 
                     # Only show video if the checkbox is checked
                     if show_video:
-                        # Video display section
-                        st.write("**Video Preview:**")
+                        # Create two columns for video and raw data
+                        video_col, data_col = st.columns([1, 1])
                         
-                        # Get video filepath
-                        video_filepath = result.get('video_filepath', 'unknown')
-                        
-                        # For displaying thumbnail or play button
-                        video_col1, video_col2 = st.columns([3, 1])
-                        
-                        with video_col1:
+                        # Left column for video (smaller size)
+                        with video_col:
+                            st.write("**Video Preview:**")
+                            
+                            # Get video filepath
+                            video_filepath = result.get('video_filepath', 'unknown')
+                            
                             # Check if the video file exists
                             if video_filepath != 'unknown' and Path(video_filepath).exists():
                                 # Create a video player with a start time if specified
                                 if result["start"] > 0:
-                                    # Streamlit's video player supports seeking with start_time parameter
                                     # Store exact start and end times for UI display
                                     exact_start = result["start"]
                                     exact_end = result["end"] if result["end"] > result["start"] else exact_start + 30
                                     
-                                    # Add a highlighted message showing the exact clip segment
-                                    st.info(f"Playing clip segment: {exact_start:.2f}s - {exact_end:.2f}s")
+                                    # Add a compact message showing the exact clip segment
+                                    st.caption(f"Clip: {exact_start:.2f}s - {exact_end:.2f}s")
                                     st.video(video_filepath, start_time=int(exact_start))
-                                    
-                                    # Optional: Add a progress bar to show position within the clip
-                                    clip_duration = exact_end - exact_start
-                                    if clip_duration > 1:  # Only show for clips longer than 1 second
-                                        st.progress(0.5)  # Show progress at 50% (streamlit limitation - can't update dynamically)
-                                        st.caption(f"Clip duration: {clip_duration:.2f}s")
                                 else:
                                     st.video(video_filepath)
+                                
+                                # Display simple video info
+                                if result.get('filename'):
+                                    st.caption(f"File: {result.get('filename')}")
                             else:
                                 # If video file not found, show a placeholder
                                 if result.get('thumbnail_url'):
                                     st.image(result['thumbnail_url'], caption="Video thumbnail")
                                 else:
                                     st.error("Video file not found")
-                    
-                        with video_col2:
-                            if video_filepath != 'unknown' and Path(video_filepath).exists():
-                                st.write("**Video Controls:**")
+                        
+                        # Right column for raw API data
+                        with data_col:
+                            st.write("**Raw API Response:**")
+                            # Create a clean display of the raw result data
+                            with st.expander("View details", expanded=False):
+                                # Create a copy of the result without the video path for cleaner display
+                                display_result = result.copy()
+                                if 'video_filepath' in display_result:
+                                    display_result['video_filepath'] = '...' + display_result['video_filepath'][-30:] if len(display_result['video_filepath']) > 30 else display_result['video_filepath']
                                 
-                                # Create more precise navigation buttons
-                                start_time = result["start"] if result["start"] > 0 else 0
-                                end_time = result["end"] if result["end"] > result["start"] else start_time + 30
-                                
-                                col_a, col_b = st.columns(2)
-                                with col_a:
-                                    if st.button(f"⏮️ Start", key=f"jump_{i}_start"):
-                                        st.session_state[f"video_{i}_time"] = int(start_time)
-                                        st.rerun()
-                                
-                                with col_b:
-                                    if st.button(f"⏭️ End", key=f"jump_{i}_end"):
-                                        st.session_state[f"video_{i}_time"] = int(end_time)
-                                        st.rerun()
-                                
-                                if end_time - start_time > 5:  # Only show mid-point for longer clips
-                                    mid_point = (start_time + end_time) / 2
-                                    if st.button(f"⏺️ Middle ({mid_point:.1f}s)", key=f"jump_{i}_mid"):
-                                        st.session_state[f"video_{i}_time"] = int(mid_point)
-                                        st.rerun()
-                                
-                                # Add precise time navigation
-                                st.write("**Timestamp Navigation:**")
-                                exact_time = st.slider(
-                                    "Position (seconds)", 
-                                    min_value=float(max(0, start_time-5)), 
-                                    max_value=float(end_time+5),
-                                    value=float(start_time),
-                                    step=0.5,
-                                    key=f"slider_{i}"
-                                )
-                                
-                                if st.button("Jump to Position", key=f"jump_{i}_custom"):
-                                    st.session_state[f"video_{i}_time"] = exact_time
-                                    st.rerun()
-                                
-                                # Add video info 
-                                st.write("**Video Info:**")
-                                if result.get('filename'):
-                                    st.caption(f"File: {result.get('filename')}")
+                                st.json(display_result)
+                            
+                            # Show key metadata in a more readable format
+                            st.caption("**Key Data Points:**")
+                            metadata_cols = st.columns(2)
+                            with metadata_cols[0]:
+                                st.markdown(f"**Video ID:** `{result.get('video_id', 'N/A')}`")
+                                st.markdown(f"**Confidence:** `{result.get('confidence', 'N/A')}`")
+                            with metadata_cols[1]:
+                                st.markdown(f"**Start:** `{result.get('start', 0):.2f}s`")  
+                                st.markdown(f"**End:** `{result.get('end', 0):.2f}s`")
                             
                     # Video file info with cleaner display
                     col_info1, col_info2, col_info3 = st.columns([1, 1, 1])
@@ -383,7 +358,8 @@ def main():
                                 label="Download Video",
                                 data=video_bytes,
                                 file_name=result.get('filename', 'video.mp4'),
-                                mime="video/mp4"
+                                mime="video/mp4",
+                                key=f"download_btn_{i}_{result.get('video_id', i)}"  # Add unique key for each download button
                             )
 
                     # Close the container divs
@@ -391,28 +367,6 @@ def main():
 
         else:
             st.error("Search failed or no results found")
-
-
-    # Example queries
-    st.subheader("💡 Example Queries")
-    example_queries = [
-        "person talking",
-        "outdoor scene",
-        "laughter or smiling",
-        "office or indoor setting",
-        "close-up of face",
-        "hand gestures",
-        "background music",
-        "text or writing"
-    ]
-
-    cols = st.columns(2)
-    for i, example in enumerate(example_queries):
-        col = cols[i % 2]
-        with col:
-            if st.button(f"🎯 {example}", key=f"example_{i}"):
-                st.query_params.query = example
-                st.rerun()
 
     # Footer
     st.divider()

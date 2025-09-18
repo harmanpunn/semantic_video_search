@@ -29,14 +29,40 @@ def load_video_data():
         return None
 
 
-def search_videos(query, max_results=5):
-    """Search videos via API"""
+def search_videos(query=None, image=None, max_results=5, search_options=None):
+    """Search videos via API using text or image"""
     try:
-        response = requests.post(
-            f"{API_BASE}/search",
-            json={"query": query, "max_results": max_results},
-            timeout=30
-        )
+        if search_options is None:
+            search_options = ["visual", "audio"]
+            
+        if query:  # Text search
+            response = requests.post(
+                f"{API_BASE}/search",
+                json={
+                    "query": query, 
+                    "max_results": max_results,
+                    "search_options": search_options
+                },
+                timeout=30
+            )
+        elif image:  # Image search
+            # Create multipart form data with the image file
+            files = {"image_file": (image.name, image.getvalue(), f"image/{image.type.split('/')[1]}")}
+            data = {
+                "max_results": str(max_results),
+                "search_options": ",".join(search_options)
+            }
+            
+            response = requests.post(
+                f"{API_BASE}/search/image",
+                files=files,
+                data=data,
+                timeout=60  # Longer timeout for image uploads
+            )
+        else:
+            st.error("No query or image provided for search")
+            return None
+            
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -93,27 +119,66 @@ def main():
         """)
 
     # Main search interface
+    # Add search type selector
+    search_type = st.radio(
+        "Search by:",
+        ["Text", "Image"],
+        horizontal=True,
+        key="search_type"
+    )
+    
     col1, col2 = st.columns([3, 1])
 
-    with col1:
-        query = st.text_input(
-            "Enter your search query:",
-            placeholder="e.g., person talking, outdoor scene, laughter, office meeting",
-            key="search_query_input"
-        )
+    # Different search inputs based on selected search type
+    if search_type == "Text":
+        with col1:
+            query = st.text_input(
+                "Enter your search query:",
+                placeholder="e.g., person talking, outdoor scene, laughter, office meeting",
+                key="search_query_input"
+            )
+            uploaded_image = None
+    else:  # Image search
+        with col1:
+            uploaded_image = st.file_uploader(
+                "Upload an image to search for similar video content:",
+                type=["jpg", "jpeg", "png"],
+                key="image_upload",
+                help="Image must be JPEG/PNG, at least 64x64 pixels, and under 5MB"
+            )
+            
+            if uploaded_image:
+                # Preview the uploaded image
+                st.image(uploaded_image, width=250, caption="Search image preview")
+            query = None
 
     with col2:
         max_results = st.selectbox("Max results:", [3, 5, 10], index=1, key="max_results_select")
 
-    # Video display option
-    show_video = st.checkbox("Show videos", value=True, 
-                            help="Display video players in results",
-                            key="show_video_checkbox")
+    # Search options
+    col_options1, col_options2 = st.columns([1, 1])
+    with col_options1:
+        search_options = st.multiselect(
+            "Search options:", 
+            ["visual", "audio"], 
+            default=["visual", "audio"],
+            key="search_options_select"
+        )
+    with col_options2:
+        show_video = st.checkbox("Show videos", value=True, 
+                                help="Display video players in results",
+                                key="show_video_checkbox")
     
-    # Search button
-    if st.button("🔍 Search", type="primary") or query:
-        if not query.strip():
+    # Search button - enabled for text search with query or image search with uploaded image
+    search_enabled = (search_type == "Text" and query and query.strip()) or (search_type == "Image" and uploaded_image is not None)
+    
+    if st.button("🔍 Search", type="primary", disabled=not search_enabled) or (search_type == "Text" and query):
+        # Different validations based on search type
+        if search_type == "Text" and (not query or not query.strip()):
             st.warning("Please enter a search query")
+            return
+        elif search_type == "Image" and not uploaded_image:
+            st.warning("Please upload an image to search with")
             return
             
         if health["status"] != "healthy":
@@ -121,7 +186,11 @@ def main():
             return
 
         with st.spinner("Searching videos..."):
-            results = search_videos(query, max_results)
+            # Use the appropriate search method based on selected type
+            if search_type == "Text":
+                results = search_videos(query=query, max_results=max_results, search_options=search_options)
+            else:  # Image search
+                results = search_videos(image=uploaded_image, max_results=max_results, search_options=search_options)
 
         if results:
             # Minimalist results header

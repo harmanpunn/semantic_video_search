@@ -208,3 +208,98 @@ class TwelveLabsClient:
             logger.error(f"Exception type: {type(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return {"success": False, "error": str(e)}
+            
+    def search_image(self, index_id: str, image_file, options: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Search videos with image query"""
+        try:
+            # Set up default options if none provided
+            if options is None:
+                options = {}
+            
+            logger.debug(f"Image search for index_id: {index_id}")
+            logger.debug(f"Search options: {options}")
+            
+            # Prepare search parameters based on documentation
+            search_params = {
+                "index_id": index_id,
+                "query_media_type": "image",
+                "query_media_file": image_file,  # This is the file object
+                "search_options": options.get("search_options", ["visual"]),
+                "threshold": options.get("threshold", "medium"),
+                "group_by": options.get("group_by", None),  # Can be "video" or None
+                "operator": options.get("operator", "or"),
+                "page_limit": options.get("page_limit", 10)
+            }
+            
+            # Add optional parameters only if they're provided
+            if "adjust_confidence_level" in options:
+                search_params["adjust_confidence_level"] = options["adjust_confidence_level"]
+            
+            if "sort_option" in options:
+                search_params["sort_option"] = options["sort_option"]
+                
+            if "filter" in options:
+                search_params["filter"] = options["filter"]
+            
+            # Remove None values to avoid SDK errors
+            search_params = {k: v for k, v in search_params.items() if v is not None}
+            logger.debug(f"Final image search parameters: {search_params}")
+            
+            # Execute the search
+            logger.info("Executing image search...")
+            search_results = self.client.search.query(**search_params)
+            logger.info("Image search executed successfully")
+            
+            # Convert to our expected format
+            results = []
+            
+            # For debugging, try to inspect the first few results
+            try:
+                item_count = 0
+                for item in search_results:
+                    item_count += 1
+                    logger.debug(f"Processing result item {item_count}")
+                    logger.debug(f"Item type: {type(item)}")
+                    logger.debug(f"Item dir: {dir(item)}")
+                    
+                    # Handle grouped results (when group_by="video")
+                    if hasattr(item, 'id') and hasattr(item, 'clips') and item.clips:
+                        logger.debug(f"Item is a grouped result with {len(item.clips)} clips")
+                        for clip in item.clips:
+                            results.append({
+                                "video_id": clip.video_id,
+                                "confidence": getattr(clip, 'confidence', 0.0),
+                                "score": getattr(clip, 'score', 0.0),
+                                "start": getattr(clip, 'start', 0.0),
+                                "end": getattr(clip, 'end', 0.0),
+                                "metadata": {"filename": getattr(clip, 'filename', 'unknown')},
+                                "clip_text": getattr(clip, 'transcription', ''),
+                                "thumbnail_url": getattr(clip, 'thumbnail_url', '')
+                            })
+                    # Handle individual results
+                    else:
+                        logger.debug(f"Item is an individual result")
+                        logger.debug(f"Item video_id: {getattr(item, 'video_id', 'Not found')}")
+                        logger.debug(f"Item confidence: {getattr(item, 'confidence', 'Not found')}")
+                        
+                        results.append({
+                            "video_id": getattr(item, 'video_id', ''),
+                            "confidence": getattr(item, 'confidence', 0.0),
+                            "score": getattr(item, 'score', 0.0),
+                            "start": getattr(item, 'start', 0.0),
+                            "end": getattr(item, 'end', 0.0),
+                            "metadata": {"filename": getattr(item, 'filename', 'unknown')},
+                            "clip_text": getattr(item, 'transcription', ''),
+                            "thumbnail_url": getattr(item, 'thumbnail_url', '')
+                        })
+            except Exception as e:
+                logger.error(f"Error processing image search results: {str(e)}")
+            
+            logger.info(f"Total image search results processed: {len(results)}")
+            return {"success": True, "data": {"data": results}}
+        except Exception as e:
+            import traceback
+            logger.error(f"Image search failed with exception: {str(e)}")
+            logger.error(f"Exception type: {type(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return {"success": False, "error": str(e)}

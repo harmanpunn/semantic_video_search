@@ -1,7 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import shutil
+import tempfile
 import json
 import sys
 import logging
@@ -28,8 +30,9 @@ index_id = None
 
 
 class SearchQuery(BaseModel):
-    query: str
+    query: Optional[str] = None
     max_results: int = MAX_SEARCH_RESULTS
+    search_options: List[str] = ["visual", "audio"]
 
 
 class SearchResult(BaseModel):
@@ -45,9 +48,10 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    query: str
+    query: Optional[str] = None
     results: List[SearchResult]
     total_results: int
+    search_type: str = "text"  # Can be "text" or "image"
 
 
 def load_index_id():
@@ -103,9 +107,15 @@ async def health_check():
 
 
 @app.post("/search", response_model=SearchResponse)
-async def search_videos(query: SearchQuery):
+async def search_videos_text(query: SearchQuery):
     """Search videos with text query"""
-    logger.info(f"Received search request with query: '{query.query}', max_results: {query.max_results}")
+    logger.info(f"Received text search request with query: '{query.query}', max_results: {query.max_results}")
+    
+    if not query.query or not query.query.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Query text cannot be empty for text search"
+        )
     
     if not index_id:
         logger.error("Search failed: No index found")
@@ -119,7 +129,7 @@ async def search_videos(query: SearchQuery):
         
         # Prepare search options
         search_options = {
-            "search_options": ["visual", "audio"],
+            "search_options": query.search_options,
             "threshold": "medium",
             "operator": "or",
             "page_limit": query.max_results,
@@ -209,11 +219,156 @@ async def search_videos(query: SearchQuery):
         return SearchResponse(
             query=query.query,
             results=search_results,
-            total_results=len(search_results)
+            total_results=len(search_results),
+            search_type="text"
         )
     except Exception as e:
         import traceback
         error_msg = f"Unexpected search error: {str(e)}"
+        logger.error(error_msg)
+        logger.error(f"Exception type: {type(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_msg
+        )
+        
+        
+@app.post("/search/image", response_model=SearchResponse)
+async def search_videos_image(
+    image_file: UploadFile = File(...),
+    max_results: int = Form(MAX_SEARCH_RESULTS),
+    search_options: str = Form("visual,audio")
+):
+    """Search videos with an image query"""
+    logger.info(f"Received image search request with file: {image_file.filename}, max_results: {max_results}")
+    
+    # Validate image file
+    if not image_file.content_type.startswith('image/'):
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not an image"
+        )
+    
+    if not index_id:
+        logger.error("Search failed: No index found")
+        raise HTTPException(
+            status_code=400,
+            detail="No index found. Run embedding generation first."
+        )
+
+    try:
+        # Save the uploaded image to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{image_file.filename.split('.')[-1]}") as temp_file:
+            shutil.copyfileobj(image_file.file, temp_file)
+            temp_path = temp_file.name
+            
+        logger.info(f"Saved uploaded image to temporary file: {temp_path}")
+        
+        # Parse search options
+        search_options_list = search_options.split(',')
+        
+        # Prepare search options
+        search_options_dict = {
+            "search_options": search_options_list,
+            "threshold": "medium",
+            "operator": "or",
+            "page_limit": max_results,
+            "adjust_confidence_level": 0.5
+        }
+        
+        logger.debug(f"Search options: {search_options_dict}")
+        
+        try:
+            # Search using Twelve Labs API with image
+            with open(temp_path, "rb") as image:
+                result = client.search_image(
+                    index_id=index_id,
+                    image_file=image,
+                    options=search_options_dict
+                )
+        finally:
+            # Clean up the temporary file
+            Path(temp_path).unlink(missing_ok=True)
+
+        logger.info(f"Search result success: {result['success']}")
+        
+        if not result["success"]:
+            error_msg = f"Image search failed: {result.get('message', 'Unknown error')}"
+            logger.error(error_msg)
+            raise HTTPException(
+                status_code=500,
+                detail=error_msg
+            )
+        
+        # Process results
+        search_data = result.get("data", {})
+        search_results = []
+        
+        # Structure is the same as text search
+        data_items = search_data.get("data", [])
+        logger.info(f"Number of results: {len(data_items)}")
+        
+        try:
+            for i, item in enumerate(data_items[:int(max_results)]):
+                logger.debug(f"Processing result {i+1}")
+                logger.debug(f"Item keys: {item.keys() if isinstance(item, dict) else 'Not a dict'}")
+                
+                # Extract video filename from metadata
+                metadata = item.get("metadata", {})
+                filename = metadata.get("filename", "unknown") if isinstance(metadata, dict) else "unknown"
+                logger.debug(f"Filename: {filename}")
+                
+                # Extract clip text if available
+                clip_text = ""
+                
+                # Handle thumbnail_url properly - keep it None if it's None
+                thumbnail_url = item.get("thumbnail_url")
+                
+                # Find the filepath for the video from the embeddings file
+                video_filepath = "unknown"
+                try:
+                    with open(EMBEDDINGS_FILE, 'r') as f:
+                        embeddings_data = json.load(f)
+                        video_id = item.get("video_id", "")
+                        for video in embeddings_data.get("videos", []):
+                            if video.get("video_id") == video_id:
+                                filename = video.get("filename", filename)
+                                video_filepath = video.get("filepath", "unknown")
+                                break
+                except Exception as e:
+                    logger.error(f"Error finding video filepath: {str(e)}")
+                
+                search_result = SearchResult(
+                    video_id=item.get("video_id", ""),
+                    filename=filename,
+                    confidence=item.get("confidence", ""),
+                    score=item.get("score", 0.0),
+                    start=item.get("start", 0.0),
+                    end=item.get("end", 0.0),
+                    clip_text=clip_text,
+                    thumbnail_url=thumbnail_url,
+                    video_filepath=video_filepath
+                )
+                
+                search_results.append(search_result)
+        except Exception as e:
+            import traceback
+            logger.error(f"Error processing search results: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Continue with whatever results we managed to process
+
+        logger.info(f"Returning {len(search_results)} image search results")
+        
+        return SearchResponse(
+            query=None,  # No text query for image search
+            results=search_results,
+            total_results=len(search_results),
+            search_type="image"
+        )
+    except Exception as e:
+        import traceback
+        error_msg = f"Unexpected image search error: {str(e)}"
         logger.error(error_msg)
         logger.error(f"Exception type: {type(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
